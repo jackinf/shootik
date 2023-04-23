@@ -35,9 +35,13 @@ class SpaceShooter:
 
     def run(self):
         while True:
-            self.handle_events()
-            self.update()
-            self.draw()
+            try:
+                self.handle_events()
+                self.update()
+                self.draw()
+            except Exception as error:
+                print(error)
+
             self.clock.tick(60)
 
     def handle_events(self):
@@ -62,10 +66,12 @@ class SpaceShooter:
         pygame.display.flip()
 
 
-class GameObject:
-    def __init__(self, game: SpaceShooter, images: List[str]):
+class AnimatedGameObject:
+    def __init__(self, game: SpaceShooter, images: List[str], scale: int = 1):
         self.game = game
         self.frames = [pygame.image.load(img) for img in images]
+        self.frames = [pygame.transform.scale(frame, (frame.get_width() * scale, frame.get_height() * scale)) for frame
+                       in self.frames]
         self.frame_index = 0
 
     def update_animation(self, event):
@@ -73,7 +79,7 @@ class GameObject:
             self.frame_index = (self.frame_index + 1) % len(self.frames)
 
 
-class Player(GameObject):
+class Player(AnimatedGameObject):
     def __init__(self, game: SpaceShooter):
         images = ["assets/images/player/player_0.png", "assets/images/player/player_1.png"]
         super().__init__(game, images)
@@ -94,7 +100,7 @@ class Player(GameObject):
         self.game.screen.blit(self.frames[self.frame_index], self.rect)
 
 
-class EnemyPool(GameObject):
+class EnemyPool(AnimatedGameObject):
     def __init__(self, game: SpaceShooter):
         images = [
             "assets/images/meteor/meteor_1.png",
@@ -103,9 +109,9 @@ class EnemyPool(GameObject):
             "assets/images/meteor/meteor_4.png",
             "assets/images/meteor/meteor_5.png",
         ]
-        super().__init__(game, images)
+        super().__init__(game, images, scale=3)
         self.rects = []
-        self.timer = TIMER_ENEMY_SPAWN
+        self.enemy_speed = 5
 
     def create_enemy(self):
         enemy_rect = self.frames[0].get_rect(center=(random.randint(50, self.game.width - 50), 0))
@@ -115,14 +121,14 @@ class EnemyPool(GameObject):
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
-        if event.type == self.timer:
+        if event.type == TIMER_ENEMY_SPAWN:
             self.create_enemy()
 
         self.update_animation(event)
 
     def update(self):
         for enemy_rect in self.rects:
-            enemy_rect.y += 3
+            enemy_rect.y += self.enemy_speed
             if enemy_rect.colliderect(self.game.player.rect):
                 if self.game.lives > 1:
                     self.game.lives -= 1
@@ -138,7 +144,7 @@ class EnemyPool(GameObject):
             self.game.screen.blit(self.frames[self.frame_index], enemy_rect)
 
 
-class ProjectilePool(GameObject):
+class ProjectilePool(AnimatedGameObject):
     def __init__(self, game: SpaceShooter):
         images = ["assets/images/projectile.png"]
         super().__init__(game, images)
