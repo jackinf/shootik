@@ -1,198 +1,220 @@
+from typing import List
+
 import pygame
 import sys
 import random
 
-# Initialize Pygame
-pygame.init()
+TIMER_ENEMY_SPAWN = pygame.USEREVENT
+ENEMY_SPAWN_MS_PER_FRAME = 1500
 
-# Screen dimensions
-WIDTH, HEIGHT = 800, 600
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Space Shooter")
-
-# Colors
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-
-# Player
-player_image = pygame.image.load("assets/images/player/player_1.png")
-player_rect = player_image.get_rect(center=(WIDTH // 2, HEIGHT - 50))
-player_speed = 15
-player_frames = [
-    pygame.image.load("assets/images/player/player_0.png"),
-    pygame.image.load("assets/images/player/player_1.png"),
-]
-player_frame_index = 0
-
-# Enemy
-enemy_image = pygame.image.load("assets/images/meteor/meteor_1.png")
-enemy_frames = [
-    pygame.image.load("assets/images/meteor/meteor_1.png"),
-    pygame.image.load("assets/images/meteor/meteor_2.png"),
-    pygame.image.load("assets/images/meteor/meteor_3.png"),
-    pygame.image.load("assets/images/meteor/meteor_4.png"),
-    pygame.image.load("assets/images/meteor/meteor_5.png"),
-]
-enemy_frame_index = 0
-enemy_rects = []
-
-# Projectile
-projectile_image = pygame.image.load("assets/images/projectile.png")
-projectile_speed = 10
-projectiles = []
-
-# Load background images
-background_image = pygame.image.load("assets/images/sky.png")
-bg_rect1 = background_image.get_rect()
-bg_rect2 = background_image.get_rect(topleft=(0, -bg_rect1.height))
-scroll_speed = 1
+TIMER_ANIMATION = pygame.USEREVENT + 1
+ANIMATION_MS_PER_FRAME = 80  # Time (in milliseconds) for each frame
 
 
-# Function to create an enemy
-def create_enemy():
-    enemy_rect = enemy_image.get_rect(center=(random.randint(50, WIDTH - 50), 0))
-    enemy_rects.append(enemy_rect)
+class SpaceShooter:
+    def __init__(self, width, height):
+        pygame.init()
+        self.width = width
+        self.height = height
+        self.screen = pygame.display.set_mode((width, height))
+        pygame.display.set_caption("Space Shooter")
+        self.clock = pygame.time.Clock()
+        self.WHITE = (255, 255, 255)
+        self.BLACK = (0, 0, 0)
+        self.player = Player(self)
+        self.enemy = EnemyPool(self)
+        self.projectile = ProjectilePool(self)
+        self.background = Background(self)
+        self.mixer = Mixer(self)
+        self.ui = UI(self)
+        self.score = 0
+        self.lives = 3
+
+        pygame.time.set_timer(TIMER_ENEMY_SPAWN, ENEMY_SPAWN_MS_PER_FRAME)
+        pygame.time.set_timer(TIMER_ANIMATION, ANIMATION_MS_PER_FRAME)
+
+    def run(self):
+        while True:
+            self.handle_events()
+            self.update()
+            self.draw()
+            self.clock.tick(60)
+
+    def handle_events(self):
+        for event in pygame.event.get():
+            self.player.handle_events(event)
+            self.enemy.handle_events(event)
+            self.projectile.handle_events(event)
+
+    def update(self):
+        self.background.update()
+        self.player.update()
+        self.enemy.update()
+        self.projectile.update()
+
+    def draw(self):
+        self.screen.fill(self.BLACK)
+        self.background.draw()
+        self.player.draw()
+        self.enemy.draw()
+        self.projectile.draw()
+        self.ui.display_score_and_lives()
+        pygame.display.flip()
 
 
-# Function to shoot a projectile
-def shoot_projectile():
-    projectile_rect = projectile_image.get_rect(center=(player_rect.centerx, player_rect.top))
-    projectiles.append(projectile_rect)
-    shooting_sound.play()
+class GameObject:
+    def __init__(self, game: SpaceShooter, images: List[str]):
+        self.game = game
+        self.frames = [pygame.image.load(img) for img in images]
+        self.frame_index = 0
+
+    def update_animation(self, event):
+        if event == TIMER_ANIMATION:
+            self.frame_index = (self.frame_index + 1) % len(self.frames)
 
 
-def display_score_and_lives():
-    score_text = font.render(f"Score: {score}", True, WHITE)
-    lives_text = font.render(f"Lives: {lives}", True, WHITE)
-    screen.blit(score_text, (10, 10))
-    screen.blit(lives_text, (WIDTH - lives_text.get_width() - 10, 10))
+class Player(GameObject):
+    def __init__(self, game: SpaceShooter):
+        images = ["assets/images/player/player_0.png", "assets/images/player/player_1.png"]
+        super().__init__(game, images)
+        self.rect = self.frames[0].get_rect(center=(game.width // 2, game.height - 50))
+        self.speed = 15
+
+    def handle_events(self, event):
+        self.update_animation(event)
+
+    def update(self):
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT] and self.rect.left > 0:
+            self.rect.x -= self.speed
+        if keys[pygame.K_RIGHT] and self.rect.right < self.game.width:
+            self.rect.x += self.speed
+
+    def draw(self):
+        self.game.screen.blit(self.frames[self.frame_index], self.rect)
 
 
-# Initialize the mixer
-pygame.mixer.init()
+class EnemyPool(GameObject):
+    def __init__(self, game: SpaceShooter):
+        images = [
+            "assets/images/meteor/meteor_1.png",
+            "assets/images/meteor/meteor_2.png",
+            "assets/images/meteor/meteor_3.png",
+            "assets/images/meteor/meteor_4.png",
+            "assets/images/meteor/meteor_5.png",
+        ]
+        super().__init__(game, images)
+        self.rects = []
+        self.timer = TIMER_ENEMY_SPAWN
 
-# Load background music
-background_music = pygame.mixer.music.load("assets/music/music.mp3")
+    def create_enemy(self):
+        enemy_rect = self.frames[0].get_rect(center=(random.randint(50, self.game.width - 50), 0))
+        self.rects.append(enemy_rect)
 
-# Load shooting sound effect
-shooting_sound = pygame.mixer.Sound("assets/sounds/shooting_sound.wav")
-
-# Play background music in a loop
-pygame.mixer.music.play(-1)
-
-# Initialize font module
-pygame.font.init()
-
-# Set up score and lives variables
-score = 0
-lives = 3
-
-# Load a font
-font = pygame.font.Font(None, 36)  # Use a default font with size 36
-
-# Game loop
-clock = pygame.time.Clock()
-enemy_timer = pygame.USEREVENT
-pygame.time.set_timer(enemy_timer, 1500)
-
-ANIMATION_TIME = 80  # Time (in milliseconds) for each frame
-animation_timer = pygame.USEREVENT + 1
-pygame.time.set_timer(animation_timer, ANIMATION_TIME)
-
-
-def update():
-    # Update background rects
-    bg_rect1.y += scroll_speed
-    bg_rect2.y += scroll_speed
-    global player_frame_index
-    global enemy_frame_index
-
-    # Reset rects when they go off the screen
-    if bg_rect1.top >= bg_rect1.height:
-        bg_rect1.y = -bg_rect1.height
-    if bg_rect2.top >= bg_rect2.height:
-        bg_rect2.y = -bg_rect2.height
-
-    for event in pygame.event.get():
+    def handle_events(self, event):
         if event.type == pygame.QUIT:
             pygame.quit()
             sys.exit()
-        if event.type == enemy_timer:
-            create_enemy()
+        if event.type == self.timer:
+            self.create_enemy()
+
+        self.update_animation(event)
+
+    def update(self):
+        for enemy_rect in self.rects:
+            enemy_rect.y += 3
+            if enemy_rect.colliderect(self.game.player.rect):
+                if self.game.lives > 1:
+                    self.game.lives -= 1
+                    self.rects.remove(enemy_rect)
+                else:
+                    pygame.quit()
+                    sys.exit()
+            if enemy_rect.top > self.game.height:
+                self.rects.remove(enemy_rect)
+
+    def draw(self):
+        for enemy_rect in self.rects:
+            self.game.screen.blit(self.frames[self.frame_index], enemy_rect)
+
+
+class ProjectilePool(GameObject):
+    def __init__(self, game: SpaceShooter):
+        images = ["assets/images/projectile.png"]
+        super().__init__(game, images)
+        self.rects = []
+        self.speed = 10
+
+    def shoot(self):
+        projectile_rect = self.frames[0].get_rect(center=(self.game.player.rect.centerx, self.game.player.rect.top))
+        self.rects.append(projectile_rect)
+        self.game.mixer.shooting_sound.play()
+
+    def handle_events(self, event):
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
-                shoot_projectile()
-        if event.type == animation_timer:
-            player_frame_index = (player_frame_index + 1) % len(player_frames)
-            enemy_frame_index = (enemy_frame_index + 1) % len(enemy_frames)
+                self.shoot()
 
-    # Handle player movement
-    keys = pygame.key.get_pressed()
-    if keys[pygame.K_LEFT] and player_rect.left > 0:
-        player_rect.x -= player_speed
-    if keys[pygame.K_RIGHT] and player_rect.right < WIDTH:
-        player_rect.x += player_speed
+    def update(self):
+        for projectile in self.rects[:]:
+            projectile.y -= self.speed
+            if projectile.bottom < 0:
+                self.rects.remove(projectile)
 
-    # Move enemies
-    for enemy_rect in enemy_rects:
-        enemy_rect.y += 3
-        if enemy_rect.colliderect(player_rect):
-            global lives
-            if lives > 1:
-                lives -= 1
-                enemy_rects.remove(enemy_rect)
-            else:
-                pygame.quit()
-                sys.exit()
-        if enemy_rect.top > HEIGHT:
-            enemy_rects.remove(enemy_rect)
+            for enemy_rect in self.game.enemy.rects:
+                if enemy_rect.colliderect(projectile):
+                    self.rects.remove(projectile)
+                    self.game.enemy.rects.remove(enemy_rect)
+                    self.game.score += 10
 
-    # Update projectiles position in the game loop
-    for projectile in projectiles[:]:
-        projectile.y -= projectile_speed
-        if projectile.bottom < 0:
-            projectiles.remove(projectile)
-
-        for enemy_rect in enemy_rects:
-            if enemy_rect.colliderect(projectile):
-                projectiles.remove(projectile)
-                enemy_rects.remove(enemy_rect)
-
-                global score
-                score += 10
+    def draw(self):
+        for projectile in self.rects:
+            self.game.screen.blit(self.frames[0], projectile)
 
 
-def draw():
-    global player_image, enemy_image
+class Background:
+    def __init__(self, game: SpaceShooter):
+        self.game = game
+        self.image = pygame.image.load("assets/images/sky.png")
+        self.rect1 = self.image.get_rect()
+        self.rect2 = self.image.get_rect(topleft=(0, -self.rect1.height))
+        self.speed = 1
 
-    # Draw
-    screen.fill(BLACK)
+    def update(self):
+        self.rect1.y += self.speed
+        self.rect2.y += self.speed
+        if self.rect1.top >= self.rect1.height:
+            self.rect1.y = -self.rect1.height
+        if self.rect2.top >= self.rect2.height:
+            self.rect2.y = -self.rect2.height
 
-    # Draw background rects
-    screen.blit(background_image, bg_rect1)
-    screen.blit(background_image, bg_rect2)
-
-    # Draw player
-    player_image = player_frames[player_frame_index]
-    screen.blit(player_image, player_rect)
-
-    # Draw enemies in the game loop
-    enemy_image = enemy_frames[enemy_frame_index]
-    for enemy_rect in enemy_rects:
-        screen.blit(enemy_image, enemy_rect)
-
-    # Draw projectiles in the game loop
-    for projectile in projectiles:
-        screen.blit(projectile_image, projectile)
-
-    # Display score and lives
-    display_score_and_lives()
-
-    pygame.display.flip()
+    def draw(self):
+        self.game.screen.blit(self.image, self.rect1)
+        self.game.screen.blit(self.image, self.rect2)
 
 
-while True:
-    update()
-    draw()
+class Mixer:
+    def __init__(self, game: SpaceShooter):
+        self.game = game
+        pygame.mixer.init()
+        pygame.mixer.music.load("assets/music/music.mp3")
+        self.shooting_sound = pygame.mixer.Sound("assets/sounds/shooting_sound.wav")
+        pygame.mixer.music.play(-1)
 
-    clock.tick(60)
+
+class UI:
+    def __init__(self, game: SpaceShooter):
+        self.game = game
+        pygame.font.init()
+        self.font = pygame.font.Font(None, 36)
+
+    def display_score_and_lives(self):
+        score_text = self.font.render(f"Score: {self.game.score}", True, self.game.WHITE)
+        lives_text = self.font.render(f"Lives: {self.game.lives}", True, self.game.WHITE)
+        self.game.screen.blit(score_text, (10, 10))
+        self.game.screen.blit(lives_text, (self.game.width - lives_text.get_width() - 10, 10))
+
+
+if __name__ == '__main__':
+    game = SpaceShooter(800, 600)
+    game.run()
